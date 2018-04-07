@@ -6,6 +6,7 @@ import Html.Events exposing (..)
 import Json.Decode.Pipeline as Pipeline
 import Json.Decode as Decode
 import Http
+import Time
 
 
 main : Program Never Model Msg
@@ -58,6 +59,7 @@ type Msg
     | AddNewLocation
     | DeleteLocation Location
     | ProcessResponse (Result Http.Error WeatherUndergroundResponse)
+    | UpdateWeather Time.Time
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -110,6 +112,9 @@ update msg model =
 
         ProcessResponse (Err error) ->
             { model | httpError = toString error } ! []
+
+        UpdateWeather _ ->
+            model ! List.map (\e -> (get e.location.city e.location.state)) model.weather
 
 
 updateForLocation : Weather -> List Weather -> List Weather
@@ -242,11 +247,6 @@ locationString weather =
     weather.location.city ++ ", " ++ weather.location.state
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
-
-
 legalForm : String -> String -> Bool
 legalForm city state =
     (String.length city > 2) && (String.length state == 2)
@@ -288,3 +288,8 @@ get city state =
             "http://api.wunderground.com/api/" ++ apiKey ++ "/conditions/q/" ++ state ++ "/" ++ city ++ ".json"
     in
         Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Time.every (Time.second * 30) UpdateWeather
