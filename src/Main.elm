@@ -24,6 +24,8 @@ type alias Model =
     , stateInput : String
     , legalForm : Bool
     , weather : List Weather
+    , currentTime : Time.Time
+    , lastUpdated : Time.Time
     , httpError : String
     }
 
@@ -48,6 +50,8 @@ init =
     , stateInput = ""
     , legalForm = False
     , weather = []
+    , currentTime = 0
+    , lastUpdated = 0
     , httpError = ""
     }
         ! []
@@ -59,6 +63,7 @@ type Msg
     | AddNewLocation
     | DeleteLocation Location
     | ProcessResponse (Result Http.Error WeatherUndergroundResponse)
+    | Tick Time.Time
     | UpdateWeather Time.Time
 
 
@@ -108,13 +113,23 @@ update msg model =
                 newWeather =
                     updateForLocation response.currentObservation model.weather
             in
-                { model | weather = newWeather } ! []
+                { model
+                    | weather = newWeather
+                    , httpError = ""
+                }
+                    ! []
 
         ProcessResponse (Err error) ->
             { model | httpError = toString error } ! []
 
-        UpdateWeather _ ->
-            model ! List.map (\e -> (get e.location.city e.location.state)) model.weather
+        UpdateWeather time ->
+            { model | lastUpdated = time }
+                ! List.map
+                    (\e -> (get e.location.city e.location.state))
+                    model.weather
+
+        Tick time ->
+            { model | currentTime = time } ! []
 
 
 updateForLocation : Weather -> List Weather -> List Weather
@@ -214,6 +229,7 @@ buttonAttributes : Bool -> List (Html.Attribute Msg)
 buttonAttributes validated =
     if validated then
         [ class "btn btn-primary"
+        , disabled False
         , onClick AddNewLocation
         ]
     else
@@ -224,10 +240,43 @@ buttonAttributes validated =
 
 resultsPane : Model -> Html Msg
 resultsPane model =
-    div [ class "col-9" ]
-        [ table
-            [ class "table" ]
-            (List.map weatherEntry model.weather)
+    let
+        timeSinceUpdate =
+            (model.currentTime - model.lastUpdated)
+                |> Time.inSeconds
+                |> round
+                |> Basics.min 60
+
+        x =
+            30 - timeSinceUpdate
+
+        disp =
+            if x > 0 then
+                toString x
+            else
+                "-"
+    in
+        div [ class "col-9" ]
+            [ div [ class "alert alert-info" ] [ text ("Next update: " ++ disp ++ " seconds") ]
+            , table
+                [ class "table table-striped" ]
+                [ tableHeader
+                , tbody []
+                    (List.map weatherEntry model.weather)
+                ]
+            ]
+
+
+tableHeader : Html Msg
+tableHeader =
+    thead []
+        [ tr
+            []
+            [ th [] [ text "Location" ]
+            , th [] [ text "Temperature" ]
+            , th [] [ text "Conditions" ]
+            , th [] [ text "Wind" ]
+            ]
         ]
 
 
@@ -285,11 +334,20 @@ get city state =
             "c83a6598d579714d"
 
         url =
-            "http://api.wunderground.com/api/" ++ apiKey ++ "/conditions/q/" ++ state ++ "/" ++ city ++ ".json"
+            "http://api.wunderground.com/api/"
+                ++ apiKey
+                ++ "/conditions/q/"
+                ++ state
+                ++ "/"
+                ++ city
+                ++ ".json"
     in
         Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Time.every (Time.second * 30) UpdateWeather
+    Sub.batch
+        [ Time.every Time.second Tick
+        , Time.every (Time.second * 30) UpdateWeather
+        ]
