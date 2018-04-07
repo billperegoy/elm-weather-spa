@@ -14,7 +14,12 @@
 
       app.ports.saveLocation.subscribe(function(locationString) {
         var items = window.localStorage.getItem('elmLocations') || "";
-        var newItems = items + ":" + locationString;
+        var newItems;
+        if (items === "") {
+          newItems = locationString;
+        } else {
+          newItems = items + ":" + locationString;
+        }
         window.localStorage.setItem('elmLocations', newItems);
       });
 

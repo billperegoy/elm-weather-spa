@@ -128,7 +128,7 @@ update msg model =
                     updateWeather response.currentObservation model.weather
             in
                 { model
-                    | weather = newWeather
+                    | weather = Debug.log "new weather" newWeather
                     , httpError = ""
                 }
                     ! []
@@ -143,7 +143,18 @@ update msg model =
                     model.weather
 
         Tick time ->
-            { model | currentTime = time } ! []
+            let
+                lastUpdated =
+                    if model.lastUpdated == 0 then
+                        time
+                    else
+                        model.lastUpdated
+            in
+                { model
+                    | currentTime = time
+                    , lastUpdated = lastUpdated
+                }
+                    ! []
 
         ReceiveLocalStorage string ->
             let
@@ -217,7 +228,7 @@ conditionallyReplaceWeather newWeather weather =
     if locationsEqual newWeather weather then
         lowercaseWeather newWeather
     else
-        weather
+        lowercaseWeather weather
 
 
 lowercaseWeather : Weather -> Weather
@@ -228,8 +239,8 @@ lowercaseWeather weather =
 
         newLocation =
             { location
-                | city = String.toLower location.city
-                , state = String.toLower location.state
+                | city = String.toLower location.city |> String.trim
+                , state = String.toLower location.state |> String.trim
             }
     in
         { weather | location = newLocation }
