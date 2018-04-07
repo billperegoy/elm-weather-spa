@@ -5,6 +5,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Json.Decode.Pipeline as Pipeline
 import Json.Decode as Decode
+import Http
 
 
 main : Program Never Model Msg
@@ -79,6 +80,7 @@ type Msg
     | SetStateInput String
     | AddNewLocation
     | DeleteLocation Location
+    | ProcessResponse (Result Http.Error WeatherUndergroundResponse)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -112,7 +114,7 @@ update msg model =
                     , stateInput = ""
                     , legalForm = False
                 }
-                    ! []
+                    ! [ get model.cityInput model.stateInput ]
 
         DeleteLocation location ->
             let
@@ -120,6 +122,12 @@ update msg model =
                     List.filter (locationMatch location) model.weather
             in
                 { model | weather = newWeather } ! []
+
+        ProcessResponse (Ok response) ->
+            model ! []
+
+        ProcessResponse (Err error) ->
+            model ! []
 
 
 locationMatch : Location -> WeatherEntry -> Bool
@@ -276,3 +284,12 @@ weatherDecoder =
         |> Pipeline.required "wether" Decode.string
         |> Pipeline.required "wind_mph" Decode.float
         |> Pipeline.required "wind_gust_mph" Decode.float
+
+
+get : String -> String -> Cmd Msg
+get city state =
+    let
+        url =
+            "http://api.wunderground.com/api/c83a6598d579714d/conditions/q/" ++ state ++ "/San_Francisco.json"
+    in
+        Http.send ProcessResponse (Http.get url weatherUndergroundDecoder)
