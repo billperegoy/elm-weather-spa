@@ -54,7 +54,7 @@ init =
     , lastUpdated = 0
     , httpError = ""
     }
-        ! []
+        ! [ requestLocations "" ]
 
 
 type Msg
@@ -65,24 +65,33 @@ type Msg
     | ProcessResponse (Result Http.Error WeatherUndergroundResponse)
     | Tick Time.Time
     | UpdateWeather Time.Time
+    | ReceiveLocalStorage String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         SetCityInput text ->
-            { model
-                | cityInput = text
-                , legalForm = legalForm text model.stateInput
-            }
-                ! []
+            let
+                lowerText =
+                    String.toLower text
+            in
+                { model
+                    | cityInput = lowerText
+                    , legalForm = legalForm lowerText model.stateInput
+                }
+                    ! []
 
         SetStateInput text ->
-            { model
-                | stateInput = text
-                , legalForm = legalForm model.cityInput text
-            }
-                ! []
+            let
+                lowerText =
+                    String.toLower text
+            in
+                { model
+                    | stateInput = lowerText
+                    , legalForm = legalForm model.cityInput lowerText
+                }
+                    ! []
 
         AddNewLocation ->
             let
@@ -136,6 +145,67 @@ update msg model =
         Tick time ->
             { model | currentTime = time } ! []
 
+        ReceiveLocalStorage string ->
+            let
+                localStorageString =
+                    Debug.log "storage:" string
+
+                locations =
+                    String.split ":" localStorageString
+
+                newWeather =
+                    List.map
+                        (\e ->
+                            { location = stringToLocation e
+                            , temperature = 0
+                            , conditions = ""
+                            , windSpeed = 0
+                            }
+                        )
+                        locations
+            in
+                { model | weather = newWeather } ! genCommands locations
+
+
+stringToLocation : String -> Location
+stringToLocation locationString =
+    let
+        cityState =
+            String.split "," locationString
+    in
+        case cityState of
+            [ city, state ] ->
+                Location city state
+
+            _ ->
+                Location "" ""
+
+
+stringToTuple locationString =
+    let
+        cityState =
+            String.split "," locationString
+    in
+        case cityState of
+            [ city, state ] ->
+                ( city, state )
+
+            _ ->
+                ( "", "" )
+
+
+genCommands : List String -> List (Cmd Msg)
+genCommands list =
+    List.map
+        (\e ->
+            let
+                location =
+                    Debug.log "cmd" (stringToTuple e)
+            in
+                get (Tuple.first location |> String.trim) (Tuple.second location |> String.trim)
+        )
+        list
+
 
 updateWeather : Weather -> List Weather -> List Weather
 updateWeather newWeather entries =
@@ -145,9 +215,24 @@ updateWeather newWeather entries =
 conditionallyReplaceWeather : Weather -> Weather -> Weather
 conditionallyReplaceWeather newWeather weather =
     if locationsEqual newWeather weather then
-        newWeather
+        lowercaseWeather newWeather
     else
         weather
+
+
+lowercaseWeather : Weather -> Weather
+lowercaseWeather weather =
+    let
+        location =
+            weather.location
+
+        newLocation =
+            { location
+                | city = String.toLower location.city
+                , state = String.toLower location.state
+            }
+    in
+        { weather | location = newLocation }
 
 
 locationsEqual : Weather -> Weather -> Bool
@@ -377,9 +462,16 @@ get city state =
 port saveLocation : String -> Cmd msg
 
 
+port requestLocations : String -> Cmd msg
+
+
+port receiveLocations : (String -> msg) -> Sub msg
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Time.every Time.second Tick
         , Time.every (Time.second * 30) UpdateWeather
+        , receiveLocations ReceiveLocalStorage
         ]
