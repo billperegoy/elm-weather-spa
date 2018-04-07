@@ -10,7 +10,14 @@
 
     <script type="text/javascript">
       var elmDiv = document.getElementById('elm-app');
-      Elm.Main.embed(elmDiv);
+      var app = Elm.Main.embed(elmDiv);
+
+      app.ports.saveLocation.subscribe(function(locationString) {
+        console.log("Saving", locationString);
+        var items = window.localStorage.getItem('elmLocations') || "";
+        var newItems = items + ":" + locationString;
+        window.localStorage.setItem('elmLocations', newItems);
+      });
     </script>
   </body>
 </html>

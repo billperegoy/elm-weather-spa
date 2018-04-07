@@ -1,4 +1,4 @@
-module Main exposing (..)
+port module Main exposing (..)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -86,8 +86,11 @@ update msg model =
 
         AddNewLocation ->
             let
+                location =
+                    Location model.cityInput model.stateInput
+
                 newWeather =
-                    { location = Location model.cityInput model.stateInput
+                    { location = location
                     , temperature = 0
                     , conditions = ""
                     , windSpeed = 0
@@ -99,7 +102,9 @@ update msg model =
                     , stateInput = ""
                     , legalForm = False
                 }
-                    ! [ get model.cityInput model.stateInput ]
+                    ! [ get model.cityInput model.stateInput
+                      , saveLocation (locationString newWeather)
+                      ]
 
         DeleteLocation location ->
             let
@@ -367,6 +372,9 @@ get city state =
                 ++ ".json"
     in
         Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
+
+
+port saveLocation : String -> Cmd msg
 
 
 subscriptions : Model -> Sub Msg
