@@ -111,7 +111,7 @@ update msg model =
         ProcessResponse (Ok response) ->
             let
                 newWeather =
-                    updateForLocation response.currentObservation model.weather
+                    updateWeather response.currentObservation model.weather
             in
                 { model
                     | weather = newWeather
@@ -132,17 +132,17 @@ update msg model =
             { model | currentTime = time } ! []
 
 
-updateForLocation : Weather -> List Weather -> List Weather
-updateForLocation weather entries =
-    List.map
-        (\e ->
-            (if locationsEqual weather e then
-                weather
-             else
-                e
-            )
-        )
-        entries
+updateWeather : Weather -> List Weather -> List Weather
+updateWeather newWeather entries =
+    List.map (conditionallyReplaceWeather newWeather) entries
+
+
+conditionallyReplaceWeather : Weather -> Weather -> Weather
+conditionallyReplaceWeather newWeather weather =
+    if locationsEqual newWeather weather then
+        newWeather
+    else
+        weather
 
 
 locationsEqual : Weather -> Weather -> Bool
@@ -252,19 +252,43 @@ resultsPane model =
 
         disp =
             if x > 0 then
-                toString x
+                Just (toString x)
             else
-                "-"
+                Nothing
     in
         div [ class "col-9" ]
-            [ div [ class "alert alert-info" ] [ text ("Next update: " ++ disp ++ " seconds") ]
-            , table
-                [ class "table table-striped" ]
-                [ tableHeader
-                , tbody []
-                    (List.map weatherEntry model.weather)
-                ]
+            [ displayNextUpdateTime disp
+            , weatherTable model
             ]
+
+
+weatherTable : Model -> Html Msg
+weatherTable model =
+    table
+        [ class "table table-striped" ]
+        [ tableHeader
+        , tbody [] (sortedWeatherEntries model.weather)
+        ]
+
+
+displayNextUpdateTime : Maybe String -> Html Msg
+displayNextUpdateTime time =
+    case time of
+        Nothing ->
+            div [] []
+
+        Just t ->
+            div [ class "alert alert-info" ]
+                [ text ("Next update: " ++ t ++ " seconds")
+                ]
+
+
+sortedWeatherEntries : List Weather -> List (Html Msg)
+sortedWeatherEntries entries =
+    entries
+        |> List.filter (\entry -> entry.conditions /= "")
+        |> List.sortBy locationString
+        |> List.map weatherEntry
 
 
 tableHeader : Html Msg
