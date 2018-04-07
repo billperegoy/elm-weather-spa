@@ -46,18 +46,7 @@ init =
     { cityInput = ""
     , stateInput = ""
     , legalForm = False
-    , weather =
-        [ { location = Location "Boston" "MA"
-          , temperature = 43.0
-          , conditions = "rain"
-          , windSpeed = 12.1
-          }
-        , { location = Location "Takoma" "WA"
-          , temperature = 57.2
-          , conditions = "partly cloudy"
-          , windSpeed = 3.2
-          }
-        ]
+    , weather = []
     , httpError = ""
     }
         ! []
@@ -90,11 +79,8 @@ update msg model =
 
         AddNewLocation ->
             let
-                newLocation =
-                    Location model.cityInput model.stateInput
-
                 newWeather =
-                    { location = newLocation
+                    { location = Location model.cityInput model.stateInput
                     , temperature = 0
                     , conditions = ""
                     , windSpeed = 0
@@ -111,20 +97,14 @@ update msg model =
         DeleteLocation location ->
             let
                 newWeather =
-                    List.filter (locationMatch location) model.weather
+                    List.filter (locationNotMatch location) model.weather
             in
                 { model | weather = newWeather } ! []
 
         ProcessResponse (Ok response) ->
             let
-                city =
-                    response.currentObservation.location.city
-
-                state =
-                    response.currentObservation.location.state
-
                 newWeather =
-                    updateForLocation city state model.weather
+                    updateForLocation response.currentObservation model.weather
             in
                 { model | weather = newWeather } ! []
 
@@ -132,28 +112,30 @@ update msg model =
             { model | httpError = toString error } ! []
 
 
-updateForLocation : String -> String -> List Weather -> List Weather
-updateForLocation city state entries =
-    let
-        location =
-            Location city state
-    in
-        List.map
-            (\e ->
-                (if (locationMatch location e) then
-                    e
-                 else
-                    e
-                )
+updateForLocation : Weather -> List Weather -> List Weather
+updateForLocation weather entries =
+    List.map
+        (\e ->
+            (if locationsEqual weather e then
+                weather
+             else
+                e
             )
-            entries
+        )
+        entries
 
 
-locationMatch : Location -> Weather -> Bool
-locationMatch location weatherEntry =
+locationsEqual : Weather -> Weather -> Bool
+locationsEqual w1 w2 =
+    (String.toLower (w1.location.city) == String.toLower (w2.location.city))
+        && (String.toLower (w1.location.state) == String.toLower (w2.location.state))
+
+
+locationNotMatch : Location -> Weather -> Bool
+locationNotMatch location weather =
     let
         entryLocation =
-            weatherEntry.location
+            weather.location
 
         entryCity =
             entryLocation.city
@@ -161,7 +143,7 @@ locationMatch location weatherEntry =
         entryState =
             entryLocation.state
     in
-        (entryCity /= location.city) || (entryState /= location.state)
+        (String.toLower (entryCity) /= String.toLower (location.city)) || (String.toLower (entryState) /= String.toLower (location.state))
 
 
 view : Model -> Html Msg
@@ -299,7 +281,10 @@ weatherDecoder =
 get : String -> String -> Cmd Msg
 get city state =
     let
+        apiKey =
+            "c83a6598d579714d"
+
         url =
-            "http://api.wunderground.com/api/c83a6598d579714d/conditions/q/" ++ state ++ "/" ++ city ++ ".json"
+            "http://api.wunderground.com/api/" ++ apiKey ++ "/conditions/q/" ++ state ++ "/" ++ city ++ ".json"
     in
         Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
