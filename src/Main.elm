@@ -22,7 +22,8 @@ type alias Model =
     { cityInput : String
     , stateInput : String
     , legalForm : Bool
-    , weather : List WeatherEntry
+    , weather : List Weather
+    , httpError : String
     }
 
 
@@ -32,20 +33,12 @@ type alias Location =
     }
 
 
-type alias WeatherUndergroundResponse =
-    { currentObservation : Weather }
-
-
 type alias Weather =
-    { temperature : Float
+    { location : Location
+    , temperature : Float
     , conditions : String
     , windSpeed : Float
-    , windGust : Float
     }
-
-
-type alias WeatherEntry =
-    ( Location, Maybe Weather )
 
 
 init : ( Model, Cmd Msg )
@@ -54,23 +47,18 @@ init =
     , stateInput = ""
     , legalForm = False
     , weather =
-        [ ( Location "Boston" "MA"
-          , Just
-                { temperature = 43.0
-                , conditions = "rain"
-                , windSpeed = 12.1
-                , windGust = 17.7
-                }
-          )
-        , ( Location "Takoma" "WA"
-          , Just
-                { temperature = 57.2
-                , conditions = "partly cloudy"
-                , windSpeed = 3.2
-                , windGust = 4.0
-                }
-          )
+        [ { location = Location "Boston" "MA"
+          , temperature = 43.0
+          , conditions = "rain"
+          , windSpeed = 12.1
+          }
+        , { location = Location "Takoma" "WA"
+          , temperature = 57.2
+          , conditions = "partly cloudy"
+          , windSpeed = 3.2
+          }
         ]
+    , httpError = ""
     }
         ! []
 
@@ -106,10 +94,14 @@ update msg model =
                     Location model.cityInput model.stateInput
 
                 newWeather =
-                    ( newLocation, Nothing ) :: model.weather
+                    { location = newLocation
+                    , temperature = 0
+                    , conditions = ""
+                    , windSpeed = 0
+                    }
             in
                 { model
-                    | weather = newWeather
+                    | weather = newWeather :: model.weather
                     , cityInput = ""
                     , stateInput = ""
                     , legalForm = False
@@ -124,17 +116,44 @@ update msg model =
                 { model | weather = newWeather } ! []
 
         ProcessResponse (Ok response) ->
-            model ! []
+            let
+                city =
+                    response.currentObservation.location.city
+
+                state =
+                    response.currentObservation.location.state
+
+                newWeather =
+                    updateForLocation city state model.weather
+            in
+                { model | weather = newWeather } ! []
 
         ProcessResponse (Err error) ->
-            model ! []
+            { model | httpError = toString error } ! []
 
 
-locationMatch : Location -> WeatherEntry -> Bool
+updateForLocation : String -> String -> List Weather -> List Weather
+updateForLocation city state entries =
+    let
+        location =
+            Location city state
+    in
+        List.map
+            (\e ->
+                (if (locationMatch location e) then
+                    e
+                 else
+                    e
+                )
+            )
+            entries
+
+
+locationMatch : Location -> Weather -> Bool
 locationMatch location weatherEntry =
     let
         entryLocation =
-            Tuple.first weatherEntry
+            weatherEntry.location
 
         entryCity =
             entryLocation.city
@@ -200,6 +219,7 @@ sidebar model =
             ]
         , button (buttonAttributes model.legalForm)
             [ text "Submit" ]
+        , div [] [ text model.httpError ]
         ]
 
 
@@ -224,41 +244,20 @@ resultsPane model =
         ]
 
 
-weatherEntry : WeatherEntry -> Html Msg
+weatherEntry : Weather -> Html Msg
 weatherEntry weather =
-    let
-        location =
-            Tuple.first weather
-
-        conditions =
-            Tuple.second weather
-    in
-        tr []
-            [ td [] [ text <| locationString weather ]
-            , td [] [ text (conditionsField .temperature conditions) ]
-            , td [] [ text (conditionsField .conditions conditions) ]
-            , td [] [ text (conditionsField .windSpeed conditions) ]
-            , td [] [ text (conditionsField .windGust conditions) ]
-            , td [ onClick (DeleteLocation location) ] [ span [ class "oi oi-circle-x" ] [] ]
-            ]
+    tr []
+        [ td [] [ text <| locationString weather ]
+        , td [] [ text (weather.temperature |> toString) ]
+        , td [] [ text weather.conditions ]
+        , td [] [ text (weather.windSpeed |> toString) ]
+        , td [ onClick (DeleteLocation weather.location) ] [ span [ class "oi oi-circle-x" ] [] ]
+        ]
 
 
-conditionsField extractor conditions =
-    case conditions of
-        Nothing ->
-            ""
-
-        Just c ->
-            c |> extractor |> toString
-
-
-locationString : WeatherEntry -> String
+locationString : Weather -> String
 locationString weather =
-    let
-        location =
-            Tuple.first weather
-    in
-        location.city ++ ", " ++ location.state
+    weather.location.city ++ ", " ++ weather.location.state
 
 
 subscriptions : Model -> Sub Msg
@@ -271,8 +270,19 @@ legalForm city state =
     (String.length city > 2) && (String.length state == 2)
 
 
-weatherUndergroundDecoder : Decode.Decoder WeatherUndergroundResponse
-weatherUndergroundDecoder =
+locationDecoder : Decode.Decoder Location
+locationDecoder =
+    Pipeline.decode Location
+        |> Pipeline.required "city" Decode.string
+        |> Pipeline.required "state" Decode.string
+
+
+type alias WeatherUndergroundResponse =
+    { currentObservation : Weather }
+
+
+weatherUndergroundResponseDecoder : Decode.Decoder WeatherUndergroundResponse
+weatherUndergroundResponseDecoder =
     Pipeline.decode WeatherUndergroundResponse
         |> Pipeline.required "current_observation" weatherDecoder
 
@@ -280,16 +290,16 @@ weatherUndergroundDecoder =
 weatherDecoder : Decode.Decoder Weather
 weatherDecoder =
     Pipeline.decode Weather
+        |> Pipeline.required "display_location" locationDecoder
         |> Pipeline.required "temp_f" Decode.float
-        |> Pipeline.required "wether" Decode.string
+        |> Pipeline.required "weather" Decode.string
         |> Pipeline.required "wind_mph" Decode.float
-        |> Pipeline.required "wind_gust_mph" Decode.float
 
 
 get : String -> String -> Cmd Msg
 get city state =
     let
         url =
-            "http://api.wunderground.com/api/c83a6598d579714d/conditions/q/" ++ state ++ "/San_Francisco.json"
+            "http://api.wunderground.com/api/c83a6598d579714d/conditions/q/" ++ state ++ "/" ++ city ++ ".json"
     in
-        Http.send ProcessResponse (Http.get url weatherUndergroundDecoder)
+        Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
