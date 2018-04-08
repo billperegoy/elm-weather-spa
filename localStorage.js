@@ -3,12 +3,29 @@ var app = Elm.Main.embed(elmDiv);
 
 app.ports.saveLocation.subscribe(function(locationString) {
   var items = window.localStorage.getItem('elmLocations') || "";
+  var itemsCleaned = items.replace(/ /g,'');
+  var locationStringCleaned = locationString.replace(/ /g,'');
+
   var newItems;
-  if (items === "") {
+  if (itemsCleaned === "") {
     newItems = locationString;
   } else {
-    newItems = items + ":" + locationString;
+    if (itemsCleaned.includes(locationStringCleaned)) {
+      newItems = itemsCleaned;
+    } else {
+      newItems = itemsCleaned + ":" + locationStringCleaned;
+    }
   }
+  window.localStorage.setItem('elmLocations', newItems);
+});
+
+app.ports.deleteLocation.subscribe(function(locationString) {
+  var items = window.localStorage.getItem('elmLocations') || "";
+  var itemsCleaned = items.replace(/ /g,'');
+  var locationStringCleaned = locationString.replace(/ /g,'');
+  var regex = new RegExp(locationStringCleaned);
+  var newItems = itemsCleaned.replace(regex, '');
+
   window.localStorage.setItem('elmLocations', newItems);
 });
 

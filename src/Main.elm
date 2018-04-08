@@ -119,8 +119,11 @@ update msg model =
             let
                 newWeather =
                     List.filter (locationNotMatch location) model.weather
+
+                locationString =
+                    location.city ++ "," ++ location.state
             in
-                { model | weather = newWeather } ! []
+                { model | weather = newWeather } ! [ deleteLocation locationString ]
 
         ProcessResponse (Ok response) ->
             let
@@ -471,6 +474,9 @@ get city state =
 
 
 port saveLocation : String -> Cmd msg
+
+
+port deleteLocation : String -> Cmd msg
 
 
 port requestLocations : String -> Cmd msg
