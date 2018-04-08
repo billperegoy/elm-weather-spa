@@ -387,8 +387,7 @@ displayNextUpdateTime time =
 sortedWeatherEntries : List Weather -> List (Html Msg)
 sortedWeatherEntries entries =
     entries
-        -- FIXME - Need to add this back
-        --|> List.filter (\entry -> entry.conditions /= "")
+        |> List.filter (\entry -> entry.conditions /= "")
         |> List.sortBy locationString
         |> List.map weatherEntry
 
