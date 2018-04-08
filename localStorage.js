@@ -24,7 +24,10 @@ app.ports.deleteLocation.subscribe(function(locationString) {
   var itemsCleaned = items.replace(/ /g,'');
   var locationStringCleaned = locationString.replace(/ /g,'');
   var regex = new RegExp(locationStringCleaned);
-  var newItems = itemsCleaned.replace(regex, '');
+  var newItems = itemsCleaned.replace(regex, '')
+                             .replace(/^:/, '')
+                             .replace(/:$/, '')
+                             .replace(/::/g, ':');
 
   window.localStorage.setItem('elmLocations', newItems);
 });
