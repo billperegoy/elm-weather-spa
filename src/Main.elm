@@ -128,7 +128,7 @@ update msg model =
                     updateWeather response.currentObservation model.weather
             in
                 { model
-                    | weather = Debug.log "new weather" newWeather
+                    | weather = newWeather
                     , httpError = ""
                 }
                     ! []
@@ -158,11 +158,11 @@ update msg model =
 
         ReceiveLocalStorage string ->
             let
-                localStorageString =
-                    Debug.log "storage:" string
-
                 locations =
-                    String.split ":" localStorageString
+                    if (String.length string) == 0 then
+                        []
+                    else
+                        String.split ":" string
 
                 newWeather =
                     List.map
@@ -211,7 +211,7 @@ genCommands list =
         (\e ->
             let
                 location =
-                    Debug.log "cmd" (stringToTuple e)
+                    stringToTuple e
             in
                 get (Tuple.first location |> String.trim) (Tuple.second location |> String.trim)
         )
@@ -248,8 +248,8 @@ lowercaseWeather weather =
 
 locationsEqual : Weather -> Weather -> Bool
 locationsEqual w1 w2 =
-    (String.toLower (w1.location.city) == String.toLower (w2.location.city))
-        && (String.toLower (w1.location.state) == String.toLower (w2.location.state))
+    ((String.toLower (w1.location.city) |> String.trim) == (String.toLower (w2.location.city |> String.trim)))
+        && ((String.toLower (w1.location.state) |> String.trim) == (String.toLower (w2.location.state |> String.trim)))
 
 
 locationNotMatch : Location -> Weather -> Bool
@@ -387,7 +387,8 @@ displayNextUpdateTime time =
 sortedWeatherEntries : List Weather -> List (Html Msg)
 sortedWeatherEntries entries =
     entries
-        |> List.filter (\entry -> entry.conditions /= "")
+        -- FIXME - Need to add this back
+        --|> List.filter (\entry -> entry.conditions /= "")
         |> List.sortBy locationString
         |> List.map weatherEntry
 
