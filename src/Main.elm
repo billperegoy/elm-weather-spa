@@ -7,6 +7,7 @@ import Json.Decode.Pipeline as Pipeline
 import Json.Decode as Decode
 import Http
 import Time
+import Regex
 
 
 main : Program Never Model Msg
@@ -137,7 +138,17 @@ update msg model =
                     ! []
 
         ProcessResponse (Err error) ->
-            { model | httpError = toString error } ! []
+            let
+                location =
+                    processHttpError error
+
+                newWeather =
+                    List.filter (locationNotMatch location) model.weather
+
+                locationString =
+                    location.city ++ "," ++ location.state
+            in
+                { model | weather = newWeather } ! [ deleteLocation locationString ]
 
         UpdateWeather time ->
             { model | lastUpdated = time }
@@ -179,6 +190,34 @@ update msg model =
                         locations
             in
                 { model | weather = newWeather } ! genCommands locations
+
+
+processHttpError : Http.Error -> Location
+processHttpError error =
+    case error of
+        Http.BadPayload string response ->
+            let
+                strings =
+                    String.split "/" response.url
+                        |> List.reverse
+                        |> List.take 2
+            in
+                case strings of
+                    [ cityString, stateString ] ->
+                        let
+                            city =
+                                Regex.replace Regex.All (Regex.regex ".json") (\_ -> "") cityString
+
+                            state =
+                                Regex.replace Regex.All (Regex.regex "%20") (\_ -> "") stateString
+                        in
+                            Location city state
+
+                    _ ->
+                        Location "none" "none"
+
+        _ ->
+            Location "none" "none"
 
 
 stringToLocation : String -> Location
