@@ -3,6 +3,7 @@ port module Main exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Navigation
 import Json.Decode.Pipeline as Pipeline
 import Json.Decode as Decode
 import Http
@@ -10,9 +11,9 @@ import Time
 import Regex
 
 
-main : Program Never Model Msg
+main : Program Flags Model Msg
 main =
-    Html.program
+    Navigation.programWithFlags UpdateUrl
         { init = init
         , view = view
         , update = update
@@ -20,8 +21,14 @@ main =
         }
 
 
+type alias Flags =
+    { apiKey : String }
+
+
 type alias Model =
-    { cityInput : String
+    { apiKey : String
+    , currentRoute : Route
+    , cityInput : String
     , stateInput : String
     , legalForm : Bool
     , weather : List Weather
@@ -45,9 +52,11 @@ type alias Weather =
     }
 
 
-init : ( Model, Cmd Msg )
-init =
-    { cityInput = ""
+init : Flags -> Navigation.Location -> ( Model, Cmd Msg )
+init flags location =
+    { apiKey = flags.apiKey
+    , currentRoute = WeatherIndexRoute
+    , cityInput = ""
     , stateInput = ""
     , legalForm = False
     , weather = []
@@ -67,6 +76,13 @@ type Msg
     | Tick Time.Time
     | UpdateWeather Time.Time
     | ReceiveLocalStorage String
+    | UpdateUrl Navigation.Location
+
+
+type Route
+    = WeatherIndexRoute
+    | WeatherShowRoute String
+    | NotFoundRoute
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -112,7 +128,7 @@ update msg model =
                     , stateInput = ""
                     , legalForm = False
                 }
-                    ! [ get model.cityInput model.stateInput
+                    ! [ get model.apiKey model.cityInput model.stateInput
                       , saveLocation (locationString newWeather)
                       ]
 
@@ -148,12 +164,13 @@ update msg model =
                 locationString =
                     location.city ++ "," ++ location.state
             in
-                { model | weather = newWeather } ! [ deleteLocation locationString ]
+                { model | weather = newWeather }
+                    ! [ deleteLocation locationString ]
 
         UpdateWeather time ->
             { model | lastUpdated = time }
                 ! List.map
-                    (\e -> (get e.location.city e.location.state))
+                    (\e -> (get model.apiKey e.location.city e.location.state))
                     model.weather
 
         Tick time ->
@@ -189,7 +206,14 @@ update msg model =
                         )
                         locations
             in
-                { model | weather = newWeather } ! genCommands locations
+                { model | weather = newWeather } ! genCommands model.apiKey locations
+
+        UpdateUrl location ->
+            let
+                route =
+                    locationToRoute location
+            in
+                { model | currentRoute = route } ! []
 
 
 processHttpError : Http.Error -> Location
@@ -247,15 +271,15 @@ stringToTuple locationString =
                 ( "", "" )
 
 
-genCommands : List String -> List (Cmd Msg)
-genCommands list =
+genCommands : String -> List String -> List (Cmd Msg)
+genCommands apiKey list =
     List.map
         (\e ->
             let
                 location =
                     stringToTuple e
             in
-                get (Tuple.first location |> String.trim) (Tuple.second location |> String.trim)
+                get apiKey (Tuple.first location |> String.trim) (Tuple.second location |> String.trim)
         )
         list
 
@@ -319,9 +343,40 @@ view model =
 
 contentArea : Model -> Html Msg
 contentArea model =
+    case model.currentRoute of
+        WeatherIndexRoute ->
+            indexContentArea model
+
+        WeatherShowRoute place ->
+            showContentArea model
+
+        NotFoundRoute ->
+            notFoundContentArea model
+
+
+indexContentArea : Model -> Html Msg
+indexContentArea model =
     div [ class "row" ]
         [ sidebar model
         , resultsPane model
+        ]
+
+
+showContentArea : Model -> Html Msg
+showContentArea model =
+    div [ class "row" ]
+        [ h1
+            []
+            [ text "10 Day Forecast" ]
+        ]
+
+
+notFoundContentArea : Model -> Html Msg
+notFoundContentArea model =
+    div [ class "row" ]
+        [ h1
+            []
+            [ text "Page Not Found" ]
         ]
 
 
@@ -403,6 +458,12 @@ resultsPane model =
             [ displayNextUpdateTime disp
             , weatherTable model
             ]
+
+
+notFoundPane : Html Msg
+notFoundPane =
+    div [ class "col-9" ]
+        [ h1 [] [ text "Page Not Found" ] ]
 
 
 weatherTable : Model -> Html Msg
@@ -494,12 +555,9 @@ weatherDecoder =
         |> Pipeline.required "wind_mph" Decode.float
 
 
-get : String -> String -> Cmd Msg
-get city state =
+get : String -> String -> String -> Cmd Msg
+get apiKey city state =
     let
-        apiKey =
-            "c83a6598d579714d"
-
         url =
             "http://api.wunderground.com/api/"
                 ++ apiKey
@@ -522,6 +580,31 @@ port requestLocations : String -> Cmd msg
 
 
 port receiveLocations : (String -> msg) -> Sub msg
+
+
+locationToRoute : Navigation.Location -> Route
+locationToRoute location =
+    let
+        routePaths =
+            location.hash
+                |> String.split "/"
+                |> List.drop 1
+
+        x =
+            Debug.log "x" routePaths
+    in
+        case routePaths of
+            [] ->
+                WeatherIndexRoute
+
+            [ "weather" ] ->
+                WeatherIndexRoute
+
+            [ "weather", place ] ->
+                WeatherShowRoute place
+
+            _ ->
+                NotFoundRoute
 
 
 subscriptions : Model -> Sub Msg
