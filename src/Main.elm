@@ -32,6 +32,7 @@ type alias Model =
     , stateInput : String
     , legalForm : Bool
     , weather : List Weather
+    , forecast10day : List DailyForecast
     , currentTime : Time.Time
     , lastUpdated : Time.Time
     , httpError : String
@@ -103,7 +104,7 @@ type alias SimpleForecast =
 simpleForecastDecoder : Decode.Decoder SimpleForecast
 simpleForecastDecoder =
     Pipeline.decode SimpleForecast
-        |> Pipeline.required "simpleforecast" dailyForecastListDecoder
+        |> Pipeline.required "forecastday" dailyForecastListDecoder
 
 
 dailyForecastListDecoder : Decode.Decoder (List DailyForecast)
@@ -127,7 +128,7 @@ dailyForecastDecoder =
         |> Pipeline.required "high" temperatureDecoder
         |> Pipeline.required "low" temperatureDecoder
         |> Pipeline.required "conditions" Decode.string
-        |> Pipeline.required "iconUrl" Decode.string
+        |> Pipeline.required "icon_url" Decode.string
 
 
 init : Flags -> Navigation.Location -> ( Model, Cmd Msg )
@@ -138,6 +139,7 @@ init flags location =
     , stateInput = ""
     , legalForm = False
     , weather = []
+    , forecast10day = []
     , currentTime = 0
     , lastUpdated = 0
     , httpError = ""
@@ -247,7 +249,7 @@ update msg model =
                     ! [ deleteLocation locationString ]
 
         ProcessForecastResponse (Ok response) ->
-            { model | httpError = "Success!" } ! []
+            { model | forecast10day = response.forecast.simpleForecast.forecastDay } ! []
 
         ProcessForecastResponse (Err error) ->
             { model | httpError = toString error } ! []
@@ -301,7 +303,27 @@ update msg model =
                 cmd =
                     case route of
                         WeatherShowRoute place ->
-                            [ get2 model.apiKey "boston" "ma" ]
+                            let
+                                cityState =
+                                    String.split "-" place
+
+                                city =
+                                    case cityState of
+                                        [ city, _ ] ->
+                                            city
+
+                                        _ ->
+                                            "none"
+
+                                state =
+                                    case cityState of
+                                        [ _, state ] ->
+                                            state
+
+                                        _ ->
+                                            "none"
+                            in
+                                [ get2 model.apiKey city state ]
 
                         _ ->
                             []
@@ -458,10 +480,47 @@ indexContentArea model =
 showContentArea : String -> Model -> Html Msg
 showContentArea place model =
     div [ class "row" ]
-        [ h1
-            []
-            [ text ("10 Day Forecast for " ++ place) ]
+        [ div [ class "col-12" ]
+            [ h1
+                []
+                [ text ("10 Day Forecast for " ++ place) ]
+            , forecast10dayTable model.forecast10day
+            , p [] [ text (toString model.httpError) ]
+            ]
         ]
+
+
+forecast10dayTable : List DailyForecast -> Html Msg
+forecast10dayTable forecast =
+    table [ class "table table-striped" ]
+        [ thead []
+            [ th [] [ text "Day" ]
+            , th [] [ text "Icon" ]
+            , th [] [ text "Conditions" ]
+            , th [] [ text "High" ]
+            , th [] [ text "Low" ]
+            ]
+        , tbody []
+            (List.map singleDayForecast forecast)
+        ]
+
+
+singleDayForecast : DailyForecast -> Html Msg
+singleDayForecast day =
+    tr []
+        [ td [] [ text day.date.weekday ]
+        , td [] [ conditionsImage day ]
+        , td [] [ text day.conditions ]
+        , td [] [ text day.highTemperature.fahrenheit ]
+        , td [] [ text day.lowTemperature.fahrenheit ]
+        ]
+
+
+conditionsImage : DailyForecast -> Html Msg
+conditionsImage day =
+    img
+        [ src day.iconUrl, style [ ( "height", "35px" ) ] ]
+        []
 
 
 notFoundContentArea : Model -> Html Msg
@@ -701,9 +760,6 @@ locationToRoute location =
             location.hash
                 |> String.split "/"
                 |> List.drop 1
-
-        x =
-            Debug.log "x" routePaths
     in
         case routePaths of
             [] ->
@@ -729,6 +785,6 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Time.every Time.second Tick
-        , Time.every (Time.second * 30) UpdateWeather
+        , Time.every (Time.second * 1200) UpdateWeather
         , receiveLocations ReceiveLocalStorage
         ]
