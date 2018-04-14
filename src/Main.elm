@@ -52,6 +52,84 @@ type alias Weather =
     }
 
 
+type alias ForecastResponse =
+    { forecast : Forecast
+    }
+
+
+forecastResponseDecoder : Decode.Decoder ForecastResponse
+forecastResponseDecoder =
+    Pipeline.decode ForecastResponse
+        |> Pipeline.required "forecast" forecastDecoder
+
+
+type alias Date =
+    { weekday : String }
+
+
+dateDecoder : Decode.Decoder Date
+dateDecoder =
+    Pipeline.decode Date
+        |> Pipeline.required "weekday" Decode.string
+
+
+type alias Temperature =
+    { fahrenheit : String
+    }
+
+
+temperatureDecoder : Decode.Decoder Temperature
+temperatureDecoder =
+    Pipeline.decode Temperature
+        |> Pipeline.required "fahrenheit" Decode.string
+
+
+type alias Forecast =
+    { simpleForecast : SimpleForecast
+    }
+
+
+forecastDecoder : Decode.Decoder Forecast
+forecastDecoder =
+    Pipeline.decode Forecast
+        |> Pipeline.required "forecast" simpleForecastDecoder
+
+
+type alias SimpleForecast =
+    { forecastDay : List DailyForecast
+    }
+
+
+simpleForecastDecoder : Decode.Decoder SimpleForecast
+simpleForecastDecoder =
+    Pipeline.decode SimpleForecast
+        |> Pipeline.required "simpleforecast" dailyForecastListDecoder
+
+
+dailyForecastListDecoder : Decode.Decoder (List DailyForecast)
+dailyForecastListDecoder =
+    Decode.list dailyForecastDecoder
+
+
+type alias DailyForecast =
+    { date : Date
+    , highTemperature : Temperature
+    , lowTemperature : Temperature
+    , conditions : String
+    , iconUrl : String
+    }
+
+
+dailyForecastDecoder : Decode.Decoder DailyForecast
+dailyForecastDecoder =
+    Pipeline.decode DailyForecast
+        |> Pipeline.required "date" dateDecoder
+        |> Pipeline.required "high" temperatureDecoder
+        |> Pipeline.required "low" temperatureDecoder
+        |> Pipeline.required "conditions" Decode.string
+        |> Pipeline.required "iconUrl" Decode.string
+
+
 init : Flags -> Navigation.Location -> ( Model, Cmd Msg )
 init flags location =
     { apiKey = flags.apiKey
@@ -73,6 +151,7 @@ type Msg
     | AddNewLocation
     | DeleteLocation Location
     | ProcessResponse (Result Http.Error WeatherUndergroundResponse)
+    | ProcessForecastResponse (Result Http.Error ForecastResponse)
     | Tick Time.Time
     | UpdateWeather Time.Time
     | ReceiveLocalStorage String
@@ -166,6 +245,9 @@ update msg model =
             in
                 { model | weather = newWeather }
                     ! [ deleteLocation locationString ]
+
+        ProcessForecastResponse result ->
+            model ! []
 
         UpdateWeather time ->
             { model | lastUpdated = time }
@@ -348,7 +430,7 @@ contentArea model =
             indexContentArea model
 
         WeatherShowRoute place ->
-            showContentArea model
+            showContentArea place model
 
         NotFoundRoute ->
             notFoundContentArea model
@@ -362,22 +444,13 @@ indexContentArea model =
         ]
 
 
-showContentArea : Model -> Html Msg
-showContentArea model =
-    let
-        place =
-            case model.currentRoute of
-                WeatherShowRoute p ->
-                    p
-
-                _ ->
-                    ""
-    in
-        div [ class "row" ]
-            [ h1
-                []
-                [ text ("10 Day Forecast for " ++ place) ]
-            ]
+showContentArea : String -> Model -> Html Msg
+showContentArea place model =
+    div [ class "row" ]
+        [ h1
+            []
+            [ text ("10 Day Forecast for " ++ place) ]
+        ]
 
 
 notFoundContentArea : Model -> Html Msg
@@ -581,6 +654,21 @@ get apiKey city state =
                 ++ ".json"
     in
         Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
+
+
+get2 : String -> String -> String -> Cmd Msg
+get2 apiKey city state =
+    let
+        url =
+            "http://api.wunderground.com/api/"
+                ++ apiKey
+                ++ "/forecast10day/q/"
+                ++ state
+                ++ "/"
+                ++ city
+                ++ ".json"
+    in
+        Http.send ProcessForecastResponse (Http.get url forecastResponseDecoder)
 
 
 port saveLocation : String -> Cmd msg
