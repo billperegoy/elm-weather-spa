@@ -613,7 +613,13 @@ locationToRoute location =
             [ "weather" ] ->
                 WeatherIndexRoute
 
+            [ "weather", "" ] ->
+                WeatherIndexRoute
+
             [ "weather", place ] ->
+                WeatherShowRoute place
+
+            [ "weather", place, "" ] ->
                 WeatherShowRoute place
 
             _ ->
