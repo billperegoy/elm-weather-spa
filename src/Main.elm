@@ -364,11 +364,20 @@ indexContentArea model =
 
 showContentArea : Model -> Html Msg
 showContentArea model =
-    div [ class "row" ]
-        [ h1
-            []
-            [ text "10 Day Forecast" ]
-        ]
+    let
+        place =
+            case model.currentRoute of
+                WeatherShowRoute p ->
+                    p
+
+                _ ->
+                    ""
+    in
+        div [ class "row" ]
+            [ h1
+                []
+                [ text ("10 Day Forecast for " ++ place) ]
+            ]
 
 
 notFoundContentArea : Model -> Html Msg
@@ -510,13 +519,17 @@ tableHeader =
 
 weatherEntry : Weather -> Html Msg
 weatherEntry weather =
-    tr []
-        [ td [] [ text <| locationString weather ]
-        , td [] [ text (weather.temperature |> toString) ]
-        , td [] [ text weather.conditions ]
-        , td [] [ text (weather.windSpeed |> toString) ]
-        , td [ onClick (DeleteLocation weather.location) ] [ span [ class "oi oi-circle-x" ] [] ]
-        ]
+    let
+        link =
+            "#/weather/" ++ weather.location.city ++ "-" ++ weather.location.state
+    in
+        tr []
+            [ td [] [ a [ href link ] [ text <| locationString weather ] ]
+            , td [] [ text (weather.temperature |> toString) ]
+            , td [] [ text weather.conditions ]
+            , td [] [ text (weather.windSpeed |> toString) ]
+            , td [ onClick (DeleteLocation weather.location) ] [ span [ class "oi oi-circle-x" ] [] ]
+            ]
 
 
 locationString : Weather -> String
