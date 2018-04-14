@@ -92,7 +92,7 @@ type alias Forecast =
 forecastDecoder : Decode.Decoder Forecast
 forecastDecoder =
     Pipeline.decode Forecast
-        |> Pipeline.required "forecast" simpleForecastDecoder
+        |> Pipeline.required "simpleforecast" simpleForecastDecoder
 
 
 type alias SimpleForecast =
@@ -246,8 +246,11 @@ update msg model =
                 { model | weather = newWeather }
                     ! [ deleteLocation locationString ]
 
-        ProcessForecastResponse result ->
-            model ! []
+        ProcessForecastResponse (Ok response) ->
+            { model | httpError = "Success!" } ! []
+
+        ProcessForecastResponse (Err error) ->
+            { model | httpError = toString error } ! []
 
         UpdateWeather time ->
             { model | lastUpdated = time }
@@ -294,8 +297,16 @@ update msg model =
             let
                 route =
                     locationToRoute location
+
+                cmd =
+                    case route of
+                        WeatherShowRoute place ->
+                            [ get2 model.apiKey "boston" "ma" ]
+
+                        _ ->
+                            []
             in
-                { model | currentRoute = route } ! []
+                { model | currentRoute = route } ! cmd
 
 
 processHttpError : Http.Error -> Location
