@@ -7,8 +7,10 @@ import Navigation
 import Json.Decode.Pipeline as Pipeline
 import Json.Decode as Decode
 import Http
+import Http.Progress
 import Time
 import Regex
+import Char
 
 
 main : Program Flags Model Msg
@@ -22,11 +24,14 @@ main =
 
 
 type alias Flags =
-    { apiKey : String }
+    { apiKey : String
+    , updatePeriod : Int
+    }
 
 
 type alias Model =
     { apiKey : String
+    , updatePeriod : Int
     , currentRoute : Route
     , cityInput : String
     , stateInput : String
@@ -134,7 +139,8 @@ dailyForecastDecoder =
 init : Flags -> Navigation.Location -> ( Model, Cmd Msg )
 init flags location =
     { apiKey = flags.apiKey
-    , currentRoute = WeatherIndexRoute
+    , updatePeriod = flags.updatePeriod
+    , currentRoute = locationToRoute location
     , cityInput = ""
     , stateInput = ""
     , legalForm = False
@@ -158,6 +164,7 @@ type Msg
     | UpdateWeather Time.Time
     | ReceiveLocalStorage String
     | UpdateUrl Navigation.Location
+    | GetIndexProgress (Http.Progress.Progress WeatherUndergroundResponse)
 
 
 type Route
@@ -294,6 +301,9 @@ update msg model =
                         locations
             in
                 { model | weather = newWeather } ! genCommands model.apiKey locations
+
+        GetIndexProgress progress ->
+            model ! []
 
         UpdateUrl location ->
             let
@@ -477,17 +487,48 @@ indexContentArea model =
         ]
 
 
+capitalize : String -> String
+capitalize str =
+    case String.uncons str of
+        Nothing ->
+            str
+
+        Just ( firstLetter, rest ) ->
+            let
+                newFirstLetter =
+                    Char.toUpper firstLetter
+            in
+                String.cons newFirstLetter rest
+
+
+formatCityState : List String -> List String
+formatCityState cityState =
+    case cityState of
+        [ city, state ] ->
+            [ capitalize city, String.toUpper state ]
+
+        _ ->
+            [ "None", "None" ]
+
+
 showContentArea : String -> Model -> Html Msg
 showContentArea place model =
-    div [ class "row" ]
-        [ div [ class "col-12" ]
-            [ h1
-                []
-                [ text ("10 Day Forecast for " ++ place) ]
-            , forecast10dayTable model.forecast10day
-            , p [] [ text (toString model.httpError) ]
+    let
+        placeName =
+            place
+                |> String.split "-"
+                |> formatCityState
+                |> String.join ", "
+    in
+        div [ class "row" ]
+            [ div [ class "col-12" ]
+                [ h1
+                    []
+                    [ text ("10 Day Forecast for " ++ placeName) ]
+                , forecast10dayTable model.forecast10day
+                , p [] [ text (toString model.httpError) ]
+                ]
             ]
-        ]
 
 
 forecast10dayTable : List DailyForecast -> Html Msg
@@ -598,7 +639,7 @@ resultsPane model =
                 |> Basics.min 60
 
         x =
-            30 - timeSinceUpdate
+            model.updatePeriod - timeSinceUpdate
 
         disp =
             if x > 0 then
@@ -722,8 +763,11 @@ get apiKey city state =
                 ++ "/"
                 ++ city
                 ++ ".json"
+
+        request =
+            Http.get url weatherUndergroundResponseDecoder
     in
-        Http.send ProcessResponse (Http.get url weatherUndergroundResponseDecoder)
+        Http.send ProcessResponse request
 
 
 get2 : String -> String -> String -> Cmd Msg
@@ -759,6 +803,7 @@ locationToRoute location =
         routePaths =
             location.hash
                 |> String.split "/"
+                |> List.filter (\elem -> elem /= "")
                 |> List.drop 1
     in
         case routePaths of
@@ -768,13 +813,7 @@ locationToRoute location =
             [ "weather" ] ->
                 WeatherIndexRoute
 
-            [ "weather", "" ] ->
-                WeatherIndexRoute
-
             [ "weather", place ] ->
-                WeatherShowRoute place
-
-            [ "weather", place, "" ] ->
                 WeatherShowRoute place
 
             _ ->
@@ -785,6 +824,6 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Time.every Time.second Tick
-        , Time.every (Time.second * 1200) UpdateWeather
+        , Time.every (Time.second * (toFloat model.updatePeriod)) UpdateWeather
         , receiveLocations ReceiveLocalStorage
         ]
