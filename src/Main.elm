@@ -3,7 +3,8 @@ port module Main exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Navigation
+import Browser
+import Browser.Navigation
 import Json.Decode.Pipeline as Pipeline
 import Json.Decode as Decode
 import Http
@@ -15,10 +16,13 @@ import Char
 
 main : Program Flags Model Msg
 main =
-    Navigation.programWithFlags UpdateUrl
+    Browser.fullscreen
         { init = init
         , view = view
         , update = update
+
+        --, onNavigation = UpdateUrl
+        , onNavigation = Nothing
         , subscriptions = subscriptions
         }
 
@@ -37,9 +41,11 @@ type alias Model =
     , stateInput : String
     , legalForm : Bool
     , weather : List Weather
+    , weatherUrl : Maybe String
+    , weatherLoading : Bool
     , forecast10day : List DailyForecast
-    , currentTime : Time.Time
-    , lastUpdated : Time.Time
+    , currentTime : Time.Posix
+    , lastUpdated : Time.Posix
     , httpError : String
     }
 
@@ -65,7 +71,7 @@ type alias ForecastResponse =
 
 forecastResponseDecoder : Decode.Decoder ForecastResponse
 forecastResponseDecoder =
-    Pipeline.decode ForecastResponse
+    Decode.succeed ForecastResponse
         |> Pipeline.required "forecast" forecastDecoder
 
 
@@ -75,7 +81,7 @@ type alias Date =
 
 dateDecoder : Decode.Decoder Date
 dateDecoder =
-    Pipeline.decode Date
+    Decode.succeed Date
         |> Pipeline.required "weekday" Decode.string
 
 
@@ -86,7 +92,7 @@ type alias Temperature =
 
 temperatureDecoder : Decode.Decoder Temperature
 temperatureDecoder =
-    Pipeline.decode Temperature
+    Decode.succeed Temperature
         |> Pipeline.required "fahrenheit" Decode.string
 
 
@@ -97,7 +103,7 @@ type alias Forecast =
 
 forecastDecoder : Decode.Decoder Forecast
 forecastDecoder =
-    Pipeline.decode Forecast
+    Decode.succeed Forecast
         |> Pipeline.required "simpleforecast" simpleForecastDecoder
 
 
@@ -108,7 +114,7 @@ type alias SimpleForecast =
 
 simpleForecastDecoder : Decode.Decoder SimpleForecast
 simpleForecastDecoder =
-    Pipeline.decode SimpleForecast
+    Decode.succeed SimpleForecast
         |> Pipeline.required "forecastday" dailyForecastListDecoder
 
 
@@ -128,7 +134,7 @@ type alias DailyForecast =
 
 dailyForecastDecoder : Decode.Decoder DailyForecast
 dailyForecastDecoder =
-    Pipeline.decode DailyForecast
+    Decode.succeed DailyForecast
         |> Pipeline.required "date" dateDecoder
         |> Pipeline.required "high" temperatureDecoder
         |> Pipeline.required "low" temperatureDecoder
@@ -138,19 +144,22 @@ dailyForecastDecoder =
 
 init : Flags -> Navigation.Location -> ( Model, Cmd Msg )
 init flags location =
-    { apiKey = flags.apiKey
-    , updatePeriod = flags.updatePeriod
-    , currentRoute = locationToRoute location
-    , cityInput = ""
-    , stateInput = ""
-    , legalForm = False
-    , weather = []
-    , forecast10day = []
-    , currentTime = 0
-    , lastUpdated = 0
-    , httpError = ""
-    }
-        ! [ requestLocations "" ]
+    ( { apiKey = flags.apiKey
+      , updatePeriod = flags.updatePeriod
+      , currentRoute = locationToRoute location
+      , cityInput = ""
+      , stateInput = ""
+      , legalForm = False
+      , weather = []
+      , weatherUrl = Nothing
+      , weatherLoading = False
+      , forecast10day = []
+      , currentTime = 0
+      , lastUpdated = 0
+      , httpError = ""
+      }
+    , [ requestLocations "" ]
+    )
 
 
 type Msg
@@ -160,10 +169,10 @@ type Msg
     | DeleteLocation Location
     | ProcessResponse (Result Http.Error WeatherUndergroundResponse)
     | ProcessForecastResponse (Result Http.Error ForecastResponse)
-    | Tick Time.Time
-    | UpdateWeather Time.Time
+    | Tick Time.Posix
+    | UpdateWeather Time.Posix
     | ReceiveLocalStorage String
-    | UpdateUrl Navigation.Location
+      --| UpdateUrl Navigation.Location
     | GetIndexProgress (Http.Progress.Progress WeatherUndergroundResponse)
 
 
@@ -181,22 +190,24 @@ update msg model =
                 lowerText =
                     String.toLower text
             in
-                { model
+                ( { model
                     | cityInput = lowerText
                     , legalForm = legalForm lowerText model.stateInput
-                }
-                    ! []
+                  }
+                , []
+                )
 
         SetStateInput text ->
             let
                 lowerText =
                     String.toLower text
             in
-                { model
+                ( { model
                     | stateInput = lowerText
                     , legalForm = legalForm model.cityInput lowerText
-                }
-                    ! []
+                  }
+                , []
+                )
 
         AddNewLocation ->
             let
@@ -209,37 +220,49 @@ update msg model =
                     , conditions = ""
                     , windSpeed = 0
                     }
+
+                url =
+                    "http://api.wunderground.com/api/"
+                        ++ model.apiKey
+                        ++ "/conditions/q/"
+                        ++ model.stateInput
+                        ++ "/"
+                        ++ model.cityInput
+                        ++ ".json"
             in
-                { model
+                ( { model
                     | weather = newWeather :: model.weather
                     , cityInput = ""
                     , stateInput = ""
                     , legalForm = False
-                }
-                    ! [ get model.apiKey model.cityInput model.stateInput
-                      , saveLocation (locationString newWeather)
-                      ]
+                    , weatherUrl = Just url
+                    , weatherLoading = True
+                  }
+                , [ saveLocation (locationString newWeather)
+                  ]
+                )
 
         DeleteLocation location ->
             let
                 newWeather =
                     List.filter (locationNotMatch location) model.weather
 
-                locationString =
+                locationStr =
                     location.city ++ "," ++ location.state
             in
-                { model | weather = newWeather } ! [ deleteLocation locationString ]
+                ( { model | weather = newWeather }, [ deleteLocation locationStr ] )
 
         ProcessResponse (Ok response) ->
             let
                 newWeather =
                     updateWeather response.currentObservation model.weather
             in
-                { model
+                ( { model
                     | weather = newWeather
                     , httpError = ""
-                }
-                    ! []
+                  }
+                , []
+                )
 
         ProcessResponse (Err error) ->
             let
@@ -249,23 +272,25 @@ update msg model =
                 newWeather =
                     List.filter (locationNotMatch location) model.weather
 
-                locationString =
+                locationStr =
                     location.city ++ "," ++ location.state
             in
-                { model | weather = newWeather }
-                    ! [ deleteLocation locationString ]
+                ( { model | weather = newWeather }
+                , [ deleteLocation locationStr ]
+                )
 
         ProcessForecastResponse (Ok response) ->
-            { model | forecast10day = response.forecast.simpleForecast.forecastDay } ! []
+            ( { model | forecast10day = response.forecast.simpleForecast.forecastDay }, [] )
 
         ProcessForecastResponse (Err error) ->
-            { model | httpError = toString error } ! []
+            ( { model | httpError = Debug.toString error }, [] )
 
         UpdateWeather time ->
-            { model | lastUpdated = time }
-                ! List.map
-                    (\e -> (get model.apiKey e.location.city e.location.state))
-                    model.weather
+            ( { model | lastUpdated = time }
+            , List.map
+                (\e -> (get model.apiKey e.location.city e.location.state))
+                model.weather
+            )
 
         Tick time ->
             let
@@ -275,11 +300,12 @@ update msg model =
                     else
                         model.lastUpdated
             in
-                { model
+                ( { model
                     | currentTime = time
                     , lastUpdated = lastUpdated
-                }
-                    ! []
+                  }
+                , []
+                )
 
         ReceiveLocalStorage string ->
             let
@@ -300,45 +326,61 @@ update msg model =
                         )
                         locations
             in
-                { model | weather = newWeather } ! genCommands model.apiKey locations
+                ( { model | weather = newWeather }, genCommands model.apiKey locations )
+
+        {-
+           UpdateUrl location ->
+               let
+                   route =
+                       locationToRoute location
+
+                   cmd =
+                       case route of
+                           WeatherShowRoute place ->
+                               let
+                                   cityState =
+                                       String.split "-" place
+
+                                   city =
+                                       case cityState of
+                                           [ city, _ ] ->
+                                               city
+
+                                           _ ->
+                                               "none"
+
+                                   state =
+                                       case cityState of
+                                           [ _, state ] ->
+                                               state
+
+                                           _ ->
+                                               "none"
+                               in
+                                   [ get2 model.apiKey city state ]
+
+                           _ ->
+                               []
+               in
+                   { model | currentRoute = route } ! cmd
+        -}
+        GetIndexProgress (Http.Progress.Done response) ->
+            let
+                newWeather =
+                    updateWeather response.currentObservation model.weather
+            in
+                ( { model
+                    | weather = newWeather
+                    , weatherLoading = False
+                  }
+                , []
+                )
+
+        GetIndexProgress (Http.Progress.Fail error) ->
+            ( { model | weatherLoading = False }, [] )
 
         GetIndexProgress progress ->
-            model ! []
-
-        UpdateUrl location ->
-            let
-                route =
-                    locationToRoute location
-
-                cmd =
-                    case route of
-                        WeatherShowRoute place ->
-                            let
-                                cityState =
-                                    String.split "-" place
-
-                                city =
-                                    case cityState of
-                                        [ city, _ ] ->
-                                            city
-
-                                        _ ->
-                                            "none"
-
-                                state =
-                                    case cityState of
-                                        [ _, state ] ->
-                                            state
-
-                                        _ ->
-                                            "none"
-                            in
-                                [ get2 model.apiKey city state ]
-
-                        _ ->
-                            []
-            in
-                { model | currentRoute = route } ! cmd
+            ( { model | weatherLoading = True }, [] )
 
 
 processHttpError : Http.Error -> Location
@@ -355,10 +397,10 @@ processHttpError error =
                     [ cityString, stateString ] ->
                         let
                             city =
-                                Regex.replace Regex.All (Regex.regex ".json") (\_ -> "") cityString
+                                Regex.replace Regex.All (Regex.fromString ".json") (\_ -> "") cityString
 
                             state =
-                                Regex.replace Regex.All (Regex.regex "%20") (\_ -> "") stateString
+                                Regex.replace Regex.All (Regex.fromString "%20") (\_ -> "") stateString
                         in
                             Location city state
 
@@ -370,10 +412,10 @@ processHttpError error =
 
 
 stringToLocation : String -> Location
-stringToLocation locationString =
+stringToLocation locationStr =
     let
         cityState =
-            String.split "," locationString
+            String.split "," locationStr
     in
         case cityState of
             [ city, state ] ->
@@ -383,10 +425,11 @@ stringToLocation locationString =
                 Location "" ""
 
 
-stringToTuple locationString =
+stringToTuple : String -> ( String, String )
+stringToTuple locationStr =
     let
         cityState =
-            String.split "," locationString
+            String.split "," locationStr
     in
         case cityState of
             [ city, state ] ->
@@ -526,7 +569,7 @@ showContentArea place model =
                     []
                     [ text ("10 Day Forecast for " ++ placeName) ]
                 , forecast10dayTable model.forecast10day
-                , p [] [ text (toString model.httpError) ]
+                , p [] [ text (Debug.toString model.httpError) ]
                 ]
             ]
 
@@ -634,23 +677,33 @@ resultsPane model =
     let
         timeSinceUpdate =
             (model.currentTime - model.lastUpdated)
-                |> Time.inSeconds
+                |> Time.toSecond
                 |> round
-                |> Basics.min 60
+                |> Basics.min model.updatePeriod
 
         x =
             model.updatePeriod - timeSinceUpdate
 
         disp =
             if x > 0 then
-                Just (toString x)
+                Just (String.fromFloat x)
             else
                 Nothing
     in
         div [ class "col-9" ]
             [ displayNextUpdateTime disp
             , weatherTable model
+            , loadingIndicator model
             ]
+
+
+loadingIndicator model =
+    case model.weatherLoading of
+        True ->
+            img [ src "loading.gif", style [ ( "position", "absolute" ), ( "top", "50%" ), ( "left", "50%" ) ] ] []
+
+        _ ->
+            div [] []
 
 
 notFoundPane : Html Msg
@@ -709,9 +762,9 @@ weatherEntry weather =
     in
         tr []
             [ td [] [ a [ href link ] [ text <| locationString weather ] ]
-            , td [] [ text (weather.temperature |> toString) ]
+            , td [] [ text (weather.temperature |> String.fromInt) ]
             , td [] [ text weather.conditions ]
-            , td [] [ text (weather.windSpeed |> toString) ]
+            , td [] [ text (weather.windSpeed |> String.fromInt) ]
             , td [ onClick (DeleteLocation weather.location) ] [ span [ class "oi oi-circle-x" ] [] ]
             ]
 
@@ -728,7 +781,7 @@ legalForm city state =
 
 locationDecoder : Decode.Decoder Location
 locationDecoder =
-    Pipeline.decode Location
+    Decode.succeed Location
         |> Pipeline.required "city" Decode.string
         |> Pipeline.required "state" Decode.string
 
@@ -739,13 +792,13 @@ type alias WeatherUndergroundResponse =
 
 weatherUndergroundResponseDecoder : Decode.Decoder WeatherUndergroundResponse
 weatherUndergroundResponseDecoder =
-    Pipeline.decode WeatherUndergroundResponse
+    Decode.succeed WeatherUndergroundResponse
         |> Pipeline.required "current_observation" weatherDecoder
 
 
 weatherDecoder : Decode.Decoder Weather
 weatherDecoder =
-    Pipeline.decode Weather
+    Decode.succeed Weather
         |> Pipeline.required "display_location" locationDecoder
         |> Pipeline.required "temp_f" Decode.float
         |> Pipeline.required "weather" Decode.string
@@ -822,8 +875,19 @@ locationToRoute location =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch
-        [ Time.every Time.second Tick
-        , Time.every (Time.second * (toFloat model.updatePeriod)) UpdateWeather
-        , receiveLocations ReceiveLocalStorage
-        ]
+    let
+        weatherRequest =
+            case model.weatherUrl of
+                Just url ->
+                    Http.get url weatherUndergroundResponseDecoder
+                        |> Http.Progress.track url GetIndexProgress
+
+                Nothing ->
+                    Sub.none
+    in
+        Sub.batch
+            [ Time.every Time.toSecond Tick
+            , Time.every (Time.toSecond * (toFloat model.updatePeriod)) UpdateWeather
+            , receiveLocations ReceiveLocalStorage
+            , weatherRequest
+            ]
