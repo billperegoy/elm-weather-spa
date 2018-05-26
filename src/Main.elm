@@ -16,13 +16,12 @@ import Char
 
 main : Program Flags Model Msg
 main =
-    Browser.fullscreen
+    Browser.embed
         { init = init
         , view = view
         , update = update
 
         --, onNavigation = UpdateUrl
-        , onNavigation = Nothing
         , subscriptions = subscriptions
         }
 
@@ -142,11 +141,13 @@ dailyForecastDecoder =
         |> Pipeline.required "icon_url" Decode.string
 
 
-init : Flags -> Navigation.Location -> ( Model, Cmd Msg )
-init flags location =
+init : Flags -> ( Model, Cmd Msg )
+init flags =
     ( { apiKey = flags.apiKey
       , updatePeriod = flags.updatePeriod
-      , currentRoute = locationToRoute location
+
+      --, currentRoute = locationToRoute location
+      , currentRoute = WeatherIndexRoute
       , cityInput = ""
       , stateInput = ""
       , legalForm = False
@@ -154,11 +155,11 @@ init flags location =
       , weatherUrl = Nothing
       , weatherLoading = False
       , forecast10day = []
-      , currentTime = 0
-      , lastUpdated = 0
+      , currentTime = Time.millisToPosix 0
+      , lastUpdated = Time.millisToPosix 0
       , httpError = ""
       }
-    , [ requestLocations "" ]
+    , requestLocations ""
     )
 
 
@@ -194,7 +195,7 @@ update msg model =
                     | cityInput = lowerText
                     , legalForm = legalForm lowerText model.stateInput
                   }
-                , []
+                , Cmd.none
                 )
 
         SetStateInput text ->
@@ -206,7 +207,7 @@ update msg model =
                     | stateInput = lowerText
                     , legalForm = legalForm model.cityInput lowerText
                   }
-                , []
+                , Cmd.none
                 )
 
         AddNewLocation ->
@@ -238,8 +239,7 @@ update msg model =
                     , weatherUrl = Just url
                     , weatherLoading = True
                   }
-                , [ saveLocation (locationString newWeather)
-                  ]
+                , saveLocation (locationString newWeather)
                 )
 
         DeleteLocation location ->
@@ -250,7 +250,7 @@ update msg model =
                 locationStr =
                     location.city ++ "," ++ location.state
             in
-                ( { model | weather = newWeather }, [ deleteLocation locationStr ] )
+                ( { model | weather = newWeather }, deleteLocation locationStr )
 
         ProcessResponse (Ok response) ->
             let
@@ -261,7 +261,7 @@ update msg model =
                     | weather = newWeather
                     , httpError = ""
                   }
-                , []
+                , Cmd.none
                 )
 
         ProcessResponse (Err error) ->
@@ -276,26 +276,28 @@ update msg model =
                     location.city ++ "," ++ location.state
             in
                 ( { model | weather = newWeather }
-                , [ deleteLocation locationStr ]
+                , deleteLocation locationStr
                 )
 
         ProcessForecastResponse (Ok response) ->
-            ( { model | forecast10day = response.forecast.simpleForecast.forecastDay }, [] )
+            ( { model | forecast10day = response.forecast.simpleForecast.forecastDay }, Cmd.none )
 
         ProcessForecastResponse (Err error) ->
-            ( { model | httpError = Debug.toString error }, [] )
+            ( { model | httpError = Debug.toString error }, Cmd.none )
 
         UpdateWeather time ->
             ( { model | lastUpdated = time }
-            , List.map
-                (\e -> (get model.apiKey e.location.city e.location.state))
-                model.weather
+            , Cmd.batch
+                (List.map
+                    (\e -> (get model.apiKey e.location.city e.location.state))
+                    model.weather
+                )
             )
 
         Tick time ->
             let
                 lastUpdated =
-                    if model.lastUpdated == 0 then
+                    if model.lastUpdated == Time.millisToPosix 0 then
                         time
                     else
                         model.lastUpdated
@@ -304,7 +306,7 @@ update msg model =
                     | currentTime = time
                     , lastUpdated = lastUpdated
                   }
-                , []
+                , Cmd.none
                 )
 
         ReceiveLocalStorage string ->
@@ -326,7 +328,7 @@ update msg model =
                         )
                         locations
             in
-                ( { model | weather = newWeather }, genCommands model.apiKey locations )
+                ( { model | weather = newWeather }, Cmd.batch (genCommands model.apiKey locations) )
 
         {-
            UpdateUrl location ->
@@ -373,14 +375,14 @@ update msg model =
                     | weather = newWeather
                     , weatherLoading = False
                   }
-                , []
+                , Cmd.none
                 )
 
         GetIndexProgress (Http.Progress.Fail error) ->
-            ( { model | weatherLoading = False }, [] )
+            ( { model | weatherLoading = False }, Cmd.none )
 
         GetIndexProgress progress ->
-            ( { model | weatherLoading = True }, [] )
+            ( { model | weatherLoading = True }, Cmd.none )
 
 
 processHttpError : Http.Error -> Location
@@ -396,11 +398,27 @@ processHttpError error =
                 case strings of
                     [ cityString, stateString ] ->
                         let
+                            cityRegex =
+                                Regex.fromString ".json"
+
+                            stateRegex =
+                                Regex.fromString "%20"
+
                             city =
-                                Regex.replace Regex.All (Regex.fromString ".json") (\_ -> "") cityString
+                                case cityRegex of
+                                    Just regex ->
+                                        Regex.replace regex (\_ -> "") cityString
+
+                                    Nothing ->
+                                        cityString
 
                             state =
-                                Regex.replace Regex.All (Regex.fromString "%20") (\_ -> "") stateString
+                                case stateRegex of
+                                    Just regex ->
+                                        Regex.replace regex (\_ -> "") stateString
+
+                                    Nothing ->
+                                        stateString
                         in
                             Location city state
 
@@ -603,7 +621,7 @@ singleDayForecast day =
 conditionsImage : DailyForecast -> Html Msg
 conditionsImage day =
     img
-        [ src day.iconUrl, style [ ( "height", "35px" ) ] ]
+        [ src day.iconUrl, style "height" "35px" ]
         []
 
 
@@ -676,17 +694,16 @@ resultsPane : Model -> Html Msg
 resultsPane model =
     let
         timeSinceUpdate =
-            (model.currentTime - model.lastUpdated)
-                |> Time.toSecond
-                |> round
+            (Time.posixToMillis model.currentTime)
+                - (Time.posixToMillis model.lastUpdated)
                 |> Basics.min model.updatePeriod
 
-        x =
+        diff =
             model.updatePeriod - timeSinceUpdate
 
         disp =
-            if x > 0 then
-                Just (String.fromFloat x)
+            if diff > 0 then
+                Just (String.fromInt diff)
             else
                 Nothing
     in
@@ -700,7 +717,13 @@ resultsPane model =
 loadingIndicator model =
     case model.weatherLoading of
         True ->
-            img [ src "loading.gif", style [ ( "position", "absolute" ), ( "top", "50%" ), ( "left", "50%" ) ] ] []
+            img
+                [ src "loading.gif"
+                , style "position" "absolute"
+                , style "top" "50%"
+                , style "left" "50%"
+                ]
+                []
 
         _ ->
             div [] []
@@ -762,9 +785,9 @@ weatherEntry weather =
     in
         tr []
             [ td [] [ a [ href link ] [ text <| locationString weather ] ]
-            , td [] [ text (weather.temperature |> String.fromInt) ]
+            , td [] [ text (weather.temperature |> String.fromFloat) ]
             , td [] [ text weather.conditions ]
-            , td [] [ text (weather.windSpeed |> String.fromInt) ]
+            , td [] [ text (weather.windSpeed |> String.fromFloat) ]
             , td [ onClick (DeleteLocation weather.location) ] [ span [ class "oi oi-circle-x" ] [] ]
             ]
 
@@ -850,27 +873,30 @@ port requestLocations : String -> Cmd msg
 port receiveLocations : (String -> msg) -> Sub msg
 
 
-locationToRoute : Navigation.Location -> Route
-locationToRoute location =
-    let
-        routePaths =
-            location.hash
-                |> String.split "/"
-                |> List.filter (\elem -> elem /= "")
-                |> List.drop 1
-    in
-        case routePaths of
-            [] ->
-                WeatherIndexRoute
 
-            [ "weather" ] ->
-                WeatherIndexRoute
+{-
+   locationToRoute : Navigation.Location -> Route
+   locationToRoute location =
+       let
+           routePaths =
+               location.hash
+                   |> String.split "/"
+                   |> List.filter (\elem -> elem /= "")
+                   |> List.drop 1
+       in
+           case routePaths of
+               [] ->
+                   WeatherIndexRoute
 
-            [ "weather", place ] ->
-                WeatherShowRoute place
+               [ "weather" ] ->
+                   WeatherIndexRoute
 
-            _ ->
-                NotFoundRoute
+               [ "weather", place ] ->
+                   WeatherShowRoute place
+
+               _ ->
+                   NotFoundRoute
+-}
 
 
 subscriptions : Model -> Sub Msg
@@ -886,8 +912,8 @@ subscriptions model =
                     Sub.none
     in
         Sub.batch
-            [ Time.every Time.toSecond Tick
-            , Time.every (Time.toSecond * (toFloat model.updatePeriod)) UpdateWeather
+            [ Time.every 1000 Tick
+            , Time.every (toFloat model.updatePeriod) UpdateWeather
             , receiveLocations ReceiveLocalStorage
             , weatherRequest
             ]
