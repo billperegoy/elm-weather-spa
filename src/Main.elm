@@ -45,7 +45,7 @@ type alias Model =
     , forecast10day : List DailyForecast
     , currentTime : Time.Posix
     , lastUpdated : Time.Posix
-    , httpError : String
+    , httpError : Maybe Http.Error
     }
 
 
@@ -155,7 +155,7 @@ init env =
       , forecast10day = []
       , currentTime = Time.millisToPosix 0
       , lastUpdated = Time.millisToPosix 0
-      , httpError = ""
+      , httpError = Nothing
       }
     , requestLocations ""
     )
@@ -257,7 +257,7 @@ update msg model =
             in
                 ( { model
                     | weather = newWeather
-                    , httpError = ""
+                    , httpError = Nothing
                   }
                 , Cmd.none
                 )
@@ -281,7 +281,7 @@ update msg model =
             ( { model | forecast10day = response.forecast.simpleForecast.forecastDay }, Cmd.none )
 
         ProcessForecastResponse (Err error) ->
-            ( { model | httpError = Debug.toString error }, Cmd.none )
+            ( { model | httpError = Just error }, Cmd.none )
 
         UpdateWeather time ->
             ( { model | lastUpdated = time }
@@ -581,6 +581,14 @@ showContentArea place model =
                 |> String.split "-"
                 |> formatCityState
                 |> String.join ", "
+
+        errorString =
+            case model.httpError of
+                Just _ ->
+                    "Http Error - FIXME"
+
+                Nothing ->
+                    ""
     in
         div [ class "row" ]
             [ div [ class "col-12" ]
@@ -588,7 +596,7 @@ showContentArea place model =
                     []
                     [ text ("10 Day Forecast for " ++ placeName) ]
                 , forecast10dayTable model.forecast10day
-                , p [] [ text (Debug.toString model.httpError) ]
+                , p [] [ text errorString ]
                 ]
             ]
 
@@ -647,35 +655,44 @@ header =
 
 sidebar : Model -> Html Msg
 sidebar model =
-    div [ class "col-3" ]
-        [ div [ class "form-group" ]
-            [ label [ for "cityInput" ]
-                [ text "City " ]
-            , input
-                [ class "form-control"
-                , id "cityInput"
-                , placeholder "Enter city"
-                , onInput SetCityInput
-                , value model.cityInput
+    let
+        errorString =
+            case model.httpError of
+                Just _ ->
+                    "Http Error - FIXME"
+
+                Nothing ->
+                    ""
+    in
+        div [ class "col-3" ]
+            [ div [ class "form-group" ]
+                [ label [ for "cityInput" ]
+                    [ text "City " ]
+                , input
+                    [ class "form-control"
+                    , id "cityInput"
+                    , placeholder "Enter city"
+                    , onInput SetCityInput
+                    , value model.cityInput
+                    ]
+                    []
                 ]
-                []
-            ]
-        , div [ class "form-group" ]
-            [ label [ for "stateInput" ]
-                [ text "State" ]
-            , input
-                [ class "form-control"
-                , id "stateInput"
-                , placeholder "State"
-                , onInput SetStateInput
-                , value model.stateInput
+            , div [ class "form-group" ]
+                [ label [ for "stateInput" ]
+                    [ text "State" ]
+                , input
+                    [ class "form-control"
+                    , id "stateInput"
+                    , placeholder "State"
+                    , onInput SetStateInput
+                    , value model.stateInput
+                    ]
+                    []
                 ]
-                []
+            , button (buttonAttributes model.legalForm)
+                [ text "Submit" ]
+            , div [] [ text errorString ]
             ]
-        , button (buttonAttributes model.legalForm)
-            [ text "Submit" ]
-        , div [] [ text model.httpError ]
-        ]
 
 
 buttonAttributes : Bool -> List (Html.Attribute Msg)

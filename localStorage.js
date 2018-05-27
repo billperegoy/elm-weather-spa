@@ -1,8 +1,8 @@
-var elmDiv = document.getElementById('elm-app');
 var app = Elm.Main.fullscreen(
                              {apiKey: "c83a6598d579714d",
                               updatePeriod: 60
                              });
+console.log(app);
 
 app.ports.saveLocation.subscribe(function(locationString) {
   var items = window.localStorage.getItem('elmLocations') || "";
@@ -36,6 +36,7 @@ app.ports.deleteLocation.subscribe(function(locationString) {
 });
 
 app.ports.requestLocations.subscribe(function() {
+  console.log("Calling requestLocations in JS");
   var locations = window.localStorage.getItem('elmLocations') || "";
   app.ports.receiveLocations.send(locations);
 });
