@@ -144,7 +144,7 @@ dailyForecastDecoder =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { apiKey = flags.apiKey
-      , updatePeriod = flags.updatePeriod
+      , updatePeriod = flags.updatePeriod * 1000
 
       --, currentRoute = locationToRoute location
       , currentRoute = WeatherIndexRoute
@@ -699,7 +699,7 @@ resultsPane model =
                 |> Basics.min model.updatePeriod
 
         diff =
-            model.updatePeriod - timeSinceUpdate
+            toFloat (model.updatePeriod - timeSinceUpdate) / 1000 |> Basics.round
 
         disp =
             if diff > 0 then
@@ -714,6 +714,7 @@ resultsPane model =
             ]
 
 
+loadingIndicator : Model -> Html Msg
 loadingIndicator model =
     case model.weatherLoading of
         True ->
