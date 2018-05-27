@@ -342,16 +342,16 @@ update msg model =
 
                                 city =
                                     case cityState of
-                                        [ xcity, _ ] ->
-                                            xcity
+                                        [ first, _ ] ->
+                                            first
 
                                         _ ->
                                             "none"
 
                                 state =
                                     case cityState of
-                                        [ _, xstate ] ->
-                                            xstate
+                                        [ _, second ] ->
+                                            second
 
                                         _ ->
                                             "none"
