@@ -584,8 +584,8 @@ showContentArea place model =
 
         errorString =
             case model.httpError of
-                Just _ ->
-                    "Http Error - FIXME"
+                Just error ->
+                    httpErrorToString error
 
                 Nothing ->
                     ""
@@ -658,8 +658,8 @@ sidebar model =
     let
         errorString =
             case model.httpError of
-                Just _ ->
-                    "Http Error - FIXME"
+                Just error ->
+                    httpErrorToString error
 
                 Nothing ->
                     ""
@@ -933,3 +933,22 @@ subscriptions model =
             , receiveLocations ReceiveLocalStorage
             , weatherRequest
             ]
+
+
+httpErrorToString : Http.Error -> String
+httpErrorToString error =
+    case error of
+        Http.BadUrl string ->
+            "Bad Url: " ++ string
+
+        Http.Timeout ->
+            "Timeout"
+
+        Http.NetworkError ->
+            "Network Error"
+
+        Http.BadStatus response ->
+            "Bad Status: " ++ String.fromInt response.status.code
+
+        Http.BadPayload string response ->
+            "Bad Payload: " ++ string
