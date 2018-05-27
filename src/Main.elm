@@ -356,7 +356,7 @@ update msg model =
                                         _ ->
                                             "none"
                             in
-                                get2 model.apiKey city state
+                                get10day model.apiKey city state
 
                         _ ->
                             Cmd.none
@@ -848,8 +848,8 @@ get apiKey city state =
         Http.send ProcessResponse request
 
 
-get2 : String -> String -> String -> Cmd Msg
-get2 apiKey city state =
+get10day : String -> String -> String -> Cmd Msg
+get10day apiKey city state =
     let
         url =
             "http://api.wunderground.com/api/"
@@ -879,11 +879,10 @@ locationToRoute : Url.Url -> Route
 locationToRoute url =
     let
         routePaths =
-            url.query
+            url.fragment
                 |> Maybe.withDefault ""
                 |> String.split "/"
                 |> List.filter (\elem -> elem /= "")
-                |> List.drop 1
     in
         case routePaths of
             [] ->
