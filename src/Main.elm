@@ -11,17 +11,17 @@ import Http
 import Http.Progress
 import Time
 import Regex
+import Url
 import Char
 
 
 main : Program Flags Model Msg
 main =
-    Browser.embed
+    Browser.fullscreen
         { init = init
         , view = view
         , update = update
-
-        --, onNavigation = UpdateUrl
+        , onNavigation = Just UpdateUrl
         , subscriptions = subscriptions
         }
 
@@ -141,13 +141,11 @@ dailyForecastDecoder =
         |> Pipeline.required "icon_url" Decode.string
 
 
-init : Flags -> ( Model, Cmd Msg )
-init flags =
-    ( { apiKey = flags.apiKey
-      , updatePeriod = flags.updatePeriod * 1000
-
-      --, currentRoute = locationToRoute location
-      , currentRoute = WeatherIndexRoute
+init : Browser.Env Flags -> ( Model, Cmd Msg )
+init env =
+    ( { apiKey = env.flags.apiKey
+      , updatePeriod = env.flags.updatePeriod * 1000
+      , currentRoute = locationToRoute env.url
       , cityInput = ""
       , stateInput = ""
       , legalForm = False
@@ -173,7 +171,7 @@ type Msg
     | Tick Time.Posix
     | UpdateWeather Time.Posix
     | ReceiveLocalStorage String
-      --| UpdateUrl Navigation.Location
+    | UpdateUrl Url.Url
     | GetIndexProgress (Http.Progress.Progress WeatherUndergroundResponse)
 
 
@@ -330,42 +328,41 @@ update msg model =
             in
                 ( { model | weather = newWeather }, Cmd.batch (genCommands model.apiKey locations) )
 
-        {-
-           UpdateUrl location ->
-               let
-                   route =
-                       locationToRoute location
+        UpdateUrl url ->
+            let
+                route =
+                    locationToRoute url
 
-                   cmd =
-                       case route of
-                           WeatherShowRoute place ->
-                               let
-                                   cityState =
-                                       String.split "-" place
+                cmd =
+                    case route of
+                        WeatherShowRoute place ->
+                            let
+                                cityState =
+                                    String.split "-" place
 
-                                   city =
-                                       case cityState of
-                                           [ city, _ ] ->
-                                               city
+                                city =
+                                    case cityState of
+                                        [ xcity, _ ] ->
+                                            xcity
 
-                                           _ ->
-                                               "none"
+                                        _ ->
+                                            "none"
 
-                                   state =
-                                       case cityState of
-                                           [ _, state ] ->
-                                               state
+                                state =
+                                    case cityState of
+                                        [ _, xstate ] ->
+                                            xstate
 
-                                           _ ->
-                                               "none"
-                               in
-                                   [ get2 model.apiKey city state ]
+                                        _ ->
+                                            "none"
+                            in
+                                get2 model.apiKey city state
 
-                           _ ->
-                               []
-               in
-                   { model | currentRoute = route } ! cmd
-        -}
+                        _ ->
+                            Cmd.none
+            in
+                ( { model | currentRoute = route }, cmd )
+
         GetIndexProgress (Http.Progress.Done response) ->
             let
                 newWeather =
@@ -519,12 +516,16 @@ locationNotMatch location weather =
         (String.toLower (entryCity) /= String.toLower (location.city)) || (String.toLower (entryState) /= String.toLower (location.state))
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Page Msg
 view model =
-    div [ class "container" ]
-        [ header
-        , contentArea model
+    { title = "Elm Weather"
+    , body =
+        [ div [ class "container" ]
+            [ header
+            , contentArea model
+            ]
         ]
+    }
 
 
 contentArea : Model -> Html Msg
@@ -874,30 +875,28 @@ port requestLocations : String -> Cmd msg
 port receiveLocations : (String -> msg) -> Sub msg
 
 
+locationToRoute : Url.Url -> Route
+locationToRoute url =
+    let
+        routePaths =
+            url.query
+                |> Maybe.withDefault ""
+                |> String.split "/"
+                |> List.filter (\elem -> elem /= "")
+                |> List.drop 1
+    in
+        case routePaths of
+            [] ->
+                WeatherIndexRoute
 
-{-
-   locationToRoute : Navigation.Location -> Route
-   locationToRoute location =
-       let
-           routePaths =
-               location.hash
-                   |> String.split "/"
-                   |> List.filter (\elem -> elem /= "")
-                   |> List.drop 1
-       in
-           case routePaths of
-               [] ->
-                   WeatherIndexRoute
+            [ "weather" ] ->
+                WeatherIndexRoute
 
-               [ "weather" ] ->
-                   WeatherIndexRoute
+            [ "weather", place ] ->
+                WeatherShowRoute place
 
-               [ "weather", place ] ->
-                   WeatherShowRoute place
-
-               _ ->
-                   NotFoundRoute
--}
+            _ ->
+                NotFoundRoute
 
 
 subscriptions : Model -> Sub Msg
