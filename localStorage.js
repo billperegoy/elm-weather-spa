@@ -34,8 +34,7 @@ app.ports.deleteLocation.subscribe(function(locationString) {
   window.localStorage.setItem('elmLocations', newItems);
 });
 
-app.ports.requestLocations.subscribe(function() {
-  console.log("Calling requestLocations in JS");
+app.ports.requestLocations.subscribe(function(str) {
   var locations = window.localStorage.getItem('elmLocations') || "";
   app.ports.receiveLocations.send(locations);
 });
