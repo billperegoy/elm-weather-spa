@@ -1,7 +1,8 @@
-var app = Elm.Main.fullscreen(
-                             {apiKey: "c83a6598d579714d",
-                              updatePeriod: 60
-                             });
+var app = Elm.Main.init({flags:
+                           {apiKey: "c83a6598d579714d",
+                            updatePeriod: 60
+                           }
+                        });
 
 app.ports.saveLocation.subscribe(function(locationString) {
   var items = window.localStorage.getItem('elmLocations') || "";

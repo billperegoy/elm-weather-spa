@@ -1,27 +1,28 @@
 port module Main exposing (..)
 
+import Browser
+import Browser.Navigation as Navigation
+import Char
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Browser
-import Browser.Navigation
-import Json.Decode.Pipeline as Pipeline
-import Json.Decode as Decode
 import Http
 import Http.Progress
-import Time
+import Json.Decode as Decode
+import Json.Decode.Pipeline as Pipeline
 import Regex
+import Time
 import Url
-import Char
 
 
 main : Program Flags Model Msg
 main =
-    Browser.fullscreen
+    Browser.application
         { init = init
         , view = view
         , update = update
-        , onNavigation = Just UpdateUrl
+        , onUrlRequest = \x -> NoOp
+        , onUrlChange = UpdateUrl
         , subscriptions = subscriptions
         }
 
@@ -141,28 +142,32 @@ dailyForecastDecoder =
         |> Pipeline.required "icon_url" Decode.string
 
 
-init : Browser.Env Flags -> ( Model, Cmd Msg )
-init env =
-    ( { apiKey = env.flags.apiKey
-      , updatePeriod = env.flags.updatePeriod * 1000
-      , currentRoute = locationToRoute env.url
+init : Flags -> Url.Url -> Navigation.Key -> ( Model, Cmd Msg )
+init url key flags =
+    ( { --apiKey = flags.apiKey
+        apiKey = ""
       , cityInput = ""
-      , stateInput = ""
-      , legalForm = False
-      , weather = []
-      , weatherUrl = Nothing
-      , weatherLoading = False
-      , forecast10day = []
+      , currentRoute = WeatherIndexRoute
       , currentTime = Time.millisToPosix 0
-      , lastUpdated = Time.millisToPosix 0
+      , forecast10day = []
       , httpError = Nothing
+      , lastUpdated = Time.millisToPosix 0
+      , legalForm = False
+      , stateInput = ""
+
+      --, updatePeriod = flags.updatePeriod * 1000
+      , updatePeriod = 60 * 1000
+      , weather = []
+      , weatherLoading = False
+      , weatherUrl = Nothing
       }
     , requestLocations ""
     )
 
 
 type Msg
-    = SetCityInput String
+    = NoOp
+    | SetCityInput String
     | SetStateInput String
     | AddNewLocation
     | DeleteLocation Location
@@ -184,6 +189,9 @@ type Route
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        NoOp ->
+            ( model, Cmd.none )
+
         SetCityInput text ->
             let
                 lowerText =
@@ -287,7 +295,7 @@ update msg model =
             ( { model | lastUpdated = time }
             , Cmd.batch
                 (List.map
-                    (\e -> (get model.apiKey e.location.city e.location.state))
+                    (\e -> get model.apiKey e.location.city e.location.state)
                     model.weather
                 )
             )
@@ -310,7 +318,7 @@ update msg model =
         ReceiveLocalStorage string ->
             let
                 locations =
-                    if (String.length string) == 0 then
+                    if String.length string == 0 then
                         []
                     else
                         String.split ":" string
@@ -497,8 +505,8 @@ lowercaseWeather weather =
 
 locationsEqual : Weather -> Weather -> Bool
 locationsEqual w1 w2 =
-    ((String.toLower (w1.location.city) |> String.trim) == (String.toLower (w2.location.city |> String.trim)))
-        && ((String.toLower (w1.location.state) |> String.trim) == (String.toLower (w2.location.state |> String.trim)))
+    ((String.toLower w1.location.city |> String.trim) == String.toLower (w2.location.city |> String.trim))
+        && ((String.toLower w1.location.state |> String.trim) == String.toLower (w2.location.state |> String.trim))
 
 
 locationNotMatch : Location -> Weather -> Bool
@@ -513,10 +521,10 @@ locationNotMatch location weather =
         entryState =
             entryLocation.state
     in
-        (String.toLower (entryCity) /= String.toLower (location.city)) || (String.toLower (entryState) /= String.toLower (location.state))
+        (String.toLower entryCity /= String.toLower location.city) || (String.toLower entryState /= String.toLower location.state)
 
 
-view : Model -> Browser.Page Msg
+view : Model -> Browser.Document Msg
 view model =
     { title = "Elm Weather"
     , body =
@@ -712,8 +720,8 @@ resultsPane : Model -> Html Msg
 resultsPane model =
     let
         timeSinceUpdate =
-            (Time.posixToMillis model.currentTime)
-                - (Time.posixToMillis model.lastUpdated)
+            Time.posixToMillis model.currentTime
+                - Time.posixToMillis model.lastUpdated
                 |> Basics.min model.updatePeriod
 
         diff =
