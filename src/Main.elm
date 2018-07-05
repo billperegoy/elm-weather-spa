@@ -21,7 +21,7 @@ main =
         { init = init
         , view = view
         , update = update
-        , onUrlRequest = \x -> NoOp
+        , onUrlRequest = UrlRequest
         , onUrlChange = UpdateUrl
         , subscriptions = subscriptions
         }
@@ -47,6 +47,7 @@ type alias Model =
     , currentTime : Time.Posix
     , lastUpdated : Time.Posix
     , httpError : Maybe Http.Error
+    , navigationKey : Navigation.Key
     }
 
 
@@ -143,30 +144,28 @@ dailyForecastDecoder =
 
 
 init : Flags -> Url.Url -> Navigation.Key -> ( Model, Cmd Msg )
-init url key flags =
-    ( { --apiKey = flags.apiKey
-        apiKey = ""
+init flags url key =
+    ( { apiKey = flags.apiKey
+      , updatePeriod = flags.updatePeriod * 1000
       , cityInput = ""
-      , currentRoute = WeatherIndexRoute
-      , currentTime = Time.millisToPosix 0
-      , forecast10day = []
-      , httpError = Nothing
-      , lastUpdated = Time.millisToPosix 0
-      , legalForm = False
       , stateInput = ""
-
-      --, updatePeriod = flags.updatePeriod * 1000
-      , updatePeriod = 60 * 1000
+      , legalForm = False
       , weather = []
-      , weatherLoading = False
       , weatherUrl = Nothing
+      , weatherLoading = False
+      , currentRoute = WeatherIndexRoute
+      , forecast10day = []
+      , currentTime = Time.millisToPosix 0
+      , lastUpdated = Time.millisToPosix 0
+      , httpError = Nothing
+      , navigationKey = key
       }
     , requestLocations ""
     )
 
 
 type Msg
-    = NoOp
+    = UrlRequest Browser.UrlRequest
     | SetCityInput String
     | SetStateInput String
     | AddNewLocation
@@ -189,8 +188,22 @@ type Route
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NoOp ->
-            ( model, Cmd.none )
+        UrlRequest request ->
+            let
+                path =
+                    case request of
+                        Browser.Internal x ->
+                            case x.fragment of
+                                Just url ->
+                                    "#" ++ url
+
+                                Nothing ->
+                                    ""
+
+                        _ ->
+                            ""
+            in
+                ( model, Navigation.pushUrl model.navigationKey path )
 
         SetCityInput text ->
             let
@@ -339,7 +352,7 @@ update msg model =
         UpdateUrl url ->
             let
                 route =
-                    locationToRoute url
+                    (locationToRoute url)
 
                 cmd =
                     case route of
